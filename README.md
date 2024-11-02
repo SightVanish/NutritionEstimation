@@ -1,7 +1,7 @@
 ### Nutrition Estimation
 
-Contributors:
+Contributors:\
 Brady Huai (@BradyHuai)\
-Wechen Li (@SightVanish)\
+Wuchen Li (@SightVanish)\
 Hejie Huang (@kikimasu1)
 Konard Kopko
