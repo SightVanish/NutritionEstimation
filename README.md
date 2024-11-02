@@ -3,5 +3,5 @@
 Contributors:\
 Brady Huai (@BradyHuai)\
 Wuchen Li (@SightVanish)\
-Hejie Huang (@kikimasu1)
+Hejie Huang (@kikimasu1)\
 Konard Kopko
