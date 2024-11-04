@@ -12,7 +12,7 @@ from tqdm import tqdm
 import numpy as np
 
 from models import myresnet, vit
-from utils_data import get_DataLoader
+from utils import get_DataLoader
 from utils.utils_scheduler import WarmupCosineSchedule
 from mydataset import Food
 
