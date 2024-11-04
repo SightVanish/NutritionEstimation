@@ -1,48 +1,21 @@
-# Required Libraries and Imports
 import os
-import argparse
 import random
-import numpy as np
+import argparse
 from collections import OrderedDict
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-import torch.backends.cudnn as cudnn
-import torchvision
-import torchvision.transforms as transforms
+from torchvision import models, transforms
 from tqdm import tqdm
+import numpy as np
 
-from models import myresnet, vit, T2TNutrition, ViTNutrition, Inception3, Inception3_concat
-from timm.models import create_model
-from utils.utils import progress_bar, load_for_transfer_learning, logtxt, check_dirs
+from models import myresnet, vit
 from utils_data import get_DataLoader
 from utils.utils_scheduler import WarmupCosineSchedule
-from utils.AutomaticWeightedLoss import AutomaticWeightedLoss
 from mydataset import Food
 
-# Argument Parsing and Settings
-parser = argparse.ArgumentParser(description='PyTorch Nutrition Training')
-parser.add_argument('--lr', default=1e-4, type=float, help='learning rate')
-parser.add_argument('--wd', default=0.9, type=float, help='weight decay')
-parser.add_argument('--min_lr', default=2e-4, type=float, help='minimal learning rate')
-parser.add_argument('--dataset', choices=["nutrition_rgbd", "nutrition_rgb", "food101"], default='cifar10')
-parser.add_argument('--b', type=int, default=8, help='batch size')
-parser.add_argument('--resume', '-r', type=str, help='resume from checkpoint')
-parser.add_argument('--pretrained', action='store_true', default=False, help='Use pretrained model if available')
-parser.add_argument('--num_classes', type=int, default=1024, metavar='N', help='number of label classes')
-parser.add_argument('--model', default='T2t_vit_t_14', type=str, metavar='MODEL', help='Model name to train')
-parser.add_argument('--drop', type=float, default=0.0, metavar='PCT', help='Dropout rate')
-parser.add_argument('--img_size', type=int, default=224, metavar='N', help='Image patch size')
-parser.add_argument('--seed', type=int, default=42, help="random seed for initialization")
-parser.add_argument('--data_root', type=str, default="/path/to/data", help="Dataset root")
-parser.add_argument('--run_name', type=str, default="run_name")
-parser.add_argument('--print_freq', type=int, default=200, help="Log frequency")
-
-args = parser.parse_args()
-
-# Set random seed for reproducibility
 def set_seed(seed):
     random.seed(seed)
     np.random.seed(seed)
@@ -50,75 +23,82 @@ def set_seed(seed):
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
-set_seed(args.seed)
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e6
 
-# Prepare device
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
-best_loss = float('inf')
-global_step = 0
+parser = argparse.ArgumentParser(description='Training RGB-D Fusion Network for Nutrition Estimation')
+parser.add_argument('--lr', default=1e-4, type=float, help='Learning rate')
+parser.add_argument('--wd', default=0.9, type=float, help='Weight decay')
+parser.add_argument('--min_lr', default=2e-4, type=float, help='Minimum learning rate')
+parser.add_argument('--dataset', choices=["nutrition_rgbd", "nutrition_rgb"], default='nutrition_rgbd', help='Dataset choice')
+parser.add_argument('--b', type=int, default=8, help='Batch size')
+parser.add_argument('--resume', '-r', type=str, help='Resume from checkpoint')
+parser.add_argument('--pretrained', action='store_true', help='Use pretrained network')
+parser.add_argument('--model', default='resnet101', type=str, help='Model architecture')
+parser.add_argument('--data_root', type=str, default='path/to/dataset', help='Dataset root path')
+parser.add_argument('--seed', type=int, default=42, help='Random seed')
+args = parser.parse_args()
 
-# Model Initialization
 def initialize_model(args):
     if args.model == 'resnet101':
-        model = myresnet.resnet101()
-    elif args.model == 'inceptionv3':
-        model = Inception3(aux_logits=False, transform_input=False)
-    elif 'vit_base' in args.model:
-        model = create_model(args.model, pretrained=args.pretrained, img_size=args.img_size)
+        net = myresnet.resnet101(rgbd=args.rgbd)
+        pretrained_dict = torch.load("path/to/pretrained/model.pth")
+        model_dict = net.state_dict()
+        model_dict.update({k: v for k, v in pretrained_dict.items() if k in model_dict})
+        net.load_state_dict(model_dict)
+    elif args.model == 'vit_base':
+        net = vit.vit_base_patch16_224(pretrained=args.pretrained)
     else:
-        raise ValueError("Unknown model specified.")
-    return model.to(device)
+        raise ValueError("Unsupported model type")
+    
+    return net.to('cuda' if torch.cuda.is_available() else 'cpu')
 
-net = initialize_model(args)
+def configure_optimizer(net):
+    optimizer = optim.Adam(
+        [{'params': net.parameters(), 'lr': args.lr, 'weight_decay': args.wd}],
+    )
+    scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.99)
+    return optimizer, scheduler
 
-# Optimizer and Loss Setup
-criterion = nn.L1Loss()
-optimizer = optim.Adam(net.parameters(), lr=args.lr, weight_decay=args.wd)
-scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.99)
+def calculate_loss(outputs, labels):
+    criterion = nn.L1Loss()
+    return criterion(outputs, labels)
 
-# Data Preparation
-trainloader, testloader = get_DataLoader(args)
-
-# Training and Testing Functions
-def train(epoch, model):
-    global global_step
-    model.train()
+def train(epoch, net, trainloader, optimizer):
+    net.train()
     running_loss = 0.0
-    for batch_idx, (inputs, targets) in enumerate(trainloader):
-        inputs, targets = inputs.to(device), targets.to(device)
+    epoch_iterator = tqdm(trainloader, desc=f"Training Epoch {epoch}", dynamic_ncols=True)
+    
+    for inputs, labels in epoch_iterator:
+        inputs, labels = inputs.to(device), labels.to(device)
         optimizer.zero_grad()
-        outputs = model(inputs)
-        loss = criterion(outputs, targets)
+        outputs = net(inputs)
+        loss = calculate_loss(outputs, labels)
         loss.backward()
         optimizer.step()
-
         running_loss += loss.item()
-        global_step += 1
+    print(f"Epoch [{epoch}] - Training Loss: {running_loss / len(trainloader)}")
 
-        if (batch_idx + 1) % args.print_freq == 0:
-            print(f"Epoch {epoch}, Batch {batch_idx + 1}, Loss: {running_loss / (batch_idx + 1):.5f}")
-
-def test(epoch, model):
-    global best_loss
-    model.eval()
+def test(epoch, net, testloader):
+    net.eval()
     test_loss = 0.0
     with torch.no_grad():
-        for inputs, targets in testloader:
-            inputs, targets = inputs.to(device), targets.to(device)
-            outputs = model(inputs)
-            loss = criterion(outputs, targets)
+        for inputs, labels in testloader:
+            inputs, labels = inputs.to(device), labels.to(device)
+            outputs = net(inputs)
+            loss = calculate_loss(outputs, labels)
             test_loss += loss.item()
+    print(f"Epoch [{epoch}] - Test Loss: {test_loss / len(testloader)}")
 
-    avg_loss = test_loss / len(testloader)
-    if avg_loss < best_loss:
-        print("Saving new best model")
-        torch.save(model.state_dict(), 'best_model.pth')
-        best_loss = avg_loss
-
-    print(f"Test Epoch {epoch}, Average Loss: {avg_loss:.5f}")
-
-# Main Training Loop
-for epoch in range(300):
-    train(epoch, net)
-    test(epoch, net)
-    scheduler.step()
+if __name__ == "__main__":
+    set_seed(args.seed)
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    
+    net = initialize_model(args)
+    optimizer, scheduler = configure_optimizer(net)
+    trainloader, testloader = get_DataLoader(args)
+    
+    for epoch in range(300):
+        train(epoch, net, trainloader, optimizer)
+        test(epoch, net, testloader)
+        scheduler.step()
