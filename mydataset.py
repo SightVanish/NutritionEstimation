@@ -23,37 +23,30 @@ class Nutrition_RGBD(Dataset):
         self.total_protein = []
         self.images_rgbd = []
 
+        # read images and its corresponding nutrition facts
         for line in lines_rgb:
             image_rgb = line.split()[0]
-            label = line.strip().split()[1]  # 类别 1-
+            label = line.strip().split()[1]
             calories = line.strip().split()[2]
             mass =  line.strip().split()[3]
             fat = line.strip().split()[4]
             carb = line.strip().split()[5]
             protein = line.strip().split()[6]
 
-            self.images += [os.path.join(image_path, image_rgb)]  # 每张图片路径
+            self.images += [os.path.join(image_path, image_rgb)]
             self.labels += [str(label)]
             self.total_calories += [np.array(float(calories))]
             self.total_mass += [np.array(float(mass))]
             self.total_fat += [np.array(float(fat))]
             self.total_carb += [np.array(float(carb))]
             self.total_protein += [np.array(float(protein))]
+        
+        # read rdb depth images
         for line in lines_rgbd:
             image_rgbd = line.split()[0]
             self.images_rgbd += [os.path.join(image_path, image_rgbd)]
 
         self.transform = transform
-
-    #RGB-D  20210805
-    def my_loader(path, Type):
-        with open(path, 'rb') as f:
-            with Image.open(f) as img:
-                if Type == 3:
-                    img = img.convert('RGB')
-                elif Type == 1:
-                    img = img.convert('L')
-                return img
 
     def __getitem__(self, index):
         img_rgb = cv2.imread(self.images[index])  
