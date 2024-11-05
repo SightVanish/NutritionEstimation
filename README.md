@@ -23,6 +23,7 @@ tqdm
 
 numpy
 
+opencv-python
 
 
 Contributors:\
