@@ -3,6 +3,9 @@ import torch.nn.functional as F
 import torch
 
 class NonLocal2D(nn.Module):
+    """ A Gaussian network that finds the correlation between features.
+    Think of it as an attention for features.
+    """
     def __init__(self, in_channels):
         super(NonLocal2D, self).__init__()
         self.in_channels = in_channels
@@ -47,10 +50,20 @@ class NonLocal2D(nn.Module):
         return output
 
 class BFP(nn.Module):
+    """Balanced Feature Pyramid is a feature pyramid module.
+    It differs from approaches like FPN that integrate multi-level features using lateral connections.
+    Instead BFP strengthens the multi-level features using the same deeply integrated balanced semantic features.
+    Consists 4 steps:
+    1. rescaling: rescale images at all levels to an intermediate size (intepolation / max-pooling)
+    2. integrating: mean (sum of all rescaled images divided by the number of levels)
+    3. refining: A Non local 2D network
+    4. strengthening: reverse back to the pyramid
+    """
     def __init__(self, in_channels, num_levels, refine_level=1):
         super(BFP, self).__init__()
 
         self.in_channels = in_channels
+        # NUmber of levels for the pyramid
         self.num_levels = num_levels
         self.refine_level = refine_level
 
@@ -61,7 +74,7 @@ class BFP(nn.Module):
     def forward(self, inputs):
         assert len(inputs) == self.num_levels
 
-        # step 1: gather multi-level features by resize and average
+        # step 1: rescaling the images at all levels using interpolation and max-pooling
         feats = []
         gather_size = inputs[self.refine_level].size()[2:]
         for i in range(self.num_levels):
@@ -73,12 +86,13 @@ class BFP(nn.Module):
                     inputs[i], size=gather_size, mode='nearest')
             feats.append(gathered)
 
+        # step 2: integrate, compute the mean
         bsf = sum(feats) / len(feats)
 
-        # step 2: refine gathered features
+        # step 3: refine gathered features
         bsf = self.refine(bsf)
 
-        # step 3: scatter refined features to multi-levels by a residual path
+        # step 4: scatter refined features to multi-levels by a residual path
         outs = []
         for i in range(self.num_levels):
             out_size = inputs[i].size()[2:]
@@ -91,15 +105,15 @@ class BFP(nn.Module):
         return tuple(outs)
 
 
-if __name__ == '__main__':
-    device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
-    p1 = torch.randn((8, 256, 64, 64), device=device)
-    p2 = torch.randn((8, 256, 32, 32), device=device)
-    p3 = torch.randn((8, 256, 16, 16), device=device)
-    p4 = torch.randn((8, 256, 8, 8), device=device)
-    fpn = tuple((p1, p2, p3, p4))
-    bfp = BFP(256, 4)
-    bfp.to(device)
-    results = bfp(fpn)
-    cat1, cat2, cat3, cat4 = results
-    print('debug------------')
+# if __name__ == '__main__':
+#     device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
+#     p1 = torch.randn((8, 256, 64, 64), device=device)
+#     p2 = torch.randn((8, 256, 32, 32), device=device)
+#     p3 = torch.randn((8, 256, 16, 16), device=device)
+#     p4 = torch.randn((8, 256, 8, 8), device=device)
+#     fpn = tuple((p1, p2, p3, p4))
+#     bfp = BFP(256, 4)
+#     bfp.to(device)
+#     results = bfp(fpn)
+#     cat1, cat2, cat3, cat4 = results
+#     print('debug------------')
