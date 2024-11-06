@@ -4,7 +4,7 @@ from torch.hub import load_state_dict_from_url
 import torch.nn.functional as F
 
 import numpy as np
-from necks import BFP
+from necks.bfp import BFP
 
 __all__ = ['ResNet', 'resnet101']
 
@@ -332,7 +332,7 @@ class ResNet(nn.Module):
             elif box == '':
                 # pdb.set_trace()
                 output.append(F.adaptive_avg_pool2d(p2[i], (2, 2)))
-        output = torch.stack(output, axis=0)
+        output = torch.stack(output, dim=0)
         x = torch.flatten(output, 1)
         x = self.fc3(x)
         x = F.relu(x)
@@ -456,7 +456,7 @@ class Resnet101_concat(nn.Module):
         cat2 = self.avgpool_3(cat2)
         cat3 = self.avgpool_4(cat3)
 
-        cat_input = torch.stack([cat0, cat1, cat2, cat3], axis=1)  # torch.Size([16, 4, 512, 1, 1])
+        cat_input = torch.stack([cat0, cat1, cat2, cat3], dim=1)  # torch.Size([16, 4, 512, 1, 1])
         input = cat_input.view(cat_input.shape[0], -1)  # torch.Size([N, 5, 1024]) N =16(bz) 11(最后batch图片不足)
         input = self.fc(input)
         input = F.relu(input)  # torch.Size([16, 2048]) 添加原因：faster rcnn 也加了

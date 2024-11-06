@@ -1,4 +1,4 @@
-from models import myresnet2
+from models import myresnet
 import torch
 from torchvision.transforms import transforms
 import torch.nn as nn
@@ -30,9 +30,9 @@ test_loader = DataLoader(testset,
 
 device = torch.device("cuda:5" if torch.cuda.is_available() else 'cpu')
 
-net_rgb = myresnet2.resnet101(rgbd=True)
-net_depth = myresnet2.resnet101(rgbd=True)
-net_cat = myresnet2.Resnet101_concat(4 )
+net_rgb = myresnet.resnet101(rgbd=True)
+net_depth = myresnet.resnet101(rgbd=True)
+net_cat = myresnet.Resnet101_concat(4 )
 
 checkpoint_path = '/icislab/volume1/swj/nutrition/saved/new/regression_nutrition_rgbd_resnet101_resnet101_food2k_pretrained_fpn_multifusion_w_5scales_new/ckpt_best.pth'
 models_state_dict = torch.load(checkpoint_path)
