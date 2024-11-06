@@ -4,7 +4,7 @@ from torch.hub import load_state_dict_from_url
 import torch.nn.functional as F
 
 import numpy as np
-from necks import BFP
+from necks.bfp import BFP
 
 __all__ = ['ResNet', 'resnet101']
 
@@ -150,25 +150,20 @@ class Bottleneck(nn.Module):
 
 
 class ResNet(nn.Module):
+    # block = Bottleneck
+    # layers = [3, 4, 23, 3]
+    # rgb-d = true
+    # bbox = False
     def __init__(self, block, layers, rgbd, bbox, num_classes=1000, zero_init_residual=False,
                  groups=1, width_per_group=64, replace_stride_with_dilation=None,
                  norm_layer=None):
         super(ResNet, self).__init__()
 
-        if norm_layer is None:
-            norm_layer = nn.BatchNorm2d
-
-        self._norm_layer = norm_layer
+        self._norm_layer = nn.BatchNorm2d
 
         self.inplanes = 64
         self.dilation = 1
-        if replace_stride_with_dilation is None:
-            # each element in the tuple indicates if we should replace
-            # the 2x2 stride with a dilated convolution instead
-            replace_stride_with_dilation = [False, False, False]
-        if len(replace_stride_with_dilation) != 3:
-            raise ValueError("replace_stride_with_dilation should be None "
-                             "or a 3-element tuple, got {}".format(replace_stride_with_dilation))
+
         self.groups = groups
         self.base_width = width_per_group
 
@@ -176,6 +171,7 @@ class ResNet(nn.Module):
         self.bn1 = norm_layer(self.inplanes)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+
         self.layer1 = self._make_layer(block, 64, layers[0])
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2,
                                        dilate=replace_stride_with_dilation[0])
@@ -255,6 +251,8 @@ class ResNet(nn.Module):
         norm_layer = self._norm_layer
         downsample = None
         previous_dilation = self.dilation
+        # each element in the tuple indicates if we should replace
+        # the 2x2 stride with a dilated convolution instead
         if dilate:
             self.dilation *= stride
             stride = 1
