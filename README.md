@@ -14,6 +14,8 @@ To access and download the Nutrition5K dataset, please refer to [here](https://g
 
 The backbone model is based on ResNet101.
 
+Train the model via `python train_RGBD_multi_fusion.py --model resnet101  --dataset nutrition_rgbd --rgbd  --direct_prediction`
+
 ## Requirements
 torch
 

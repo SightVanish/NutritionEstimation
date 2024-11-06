@@ -2,6 +2,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch
 
+def calculate_fixed_pool_params(input_size, output_size):
+    # Calculate kernel size and stride to approximate the adaptive pooling output
+    kernel_size = (input_size[0] // output_size[0], input_size[1] // output_size[1])
+    stride = kernel_size
+    return kernel_size, stride
+
 class NonLocal2D(nn.Module):
     """ A Gaussian network that finds the correlation between features.
     Think of it as an attention for features.
@@ -79,8 +85,11 @@ class BFP(nn.Module):
         gather_size = inputs[self.refine_level].size()[2:]
         for i in range(self.num_levels):
             if i < self.refine_level:
-                gathered = F.adaptive_max_pool2d(
-                    inputs[i], output_size=gather_size)
+                kernel_size, stride = calculate_fixed_pool_params(inputs[i].size()[2:], gather_size)
+                # gathered = F.adaptive_max_pool2d(
+                    # inputs[i], output_size=gather_size)
+                gathered = F.max_pool2d(inputs[i], kernel_size=kernel_size, stride=stride)
+                
             else:
                 gathered = F.interpolate(
                     inputs[i], size=gather_size, mode='nearest')
@@ -99,7 +108,10 @@ class BFP(nn.Module):
             if i < self.refine_level:
                 residual = F.interpolate(bsf, size=out_size, mode='nearest')
             else:
-                residual = F.adaptive_max_pool2d(bsf, output_size=out_size)
+                # residual = F.adaptive_max_pool2d(bsf, output_size=out_size)
+                kernel_size, stride = calculate_fixed_pool_params(bsf.size()[2:], out_size)
+                residual = F.max_pool2d(bsf, kernel_size=kernel_size, stride=stride)
+
             outs.append(residual + inputs[i])
 
         return tuple(outs)

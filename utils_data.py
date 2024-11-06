@@ -38,13 +38,13 @@ def get_DataLoader(args):
     train_loader = DataLoader(trainset,
                               batch_size=args.b,
                               shuffle=True,
-                              num_workers=4,
+                              num_workers=0,
                               pin_memory=True
                               )
     test_loader = DataLoader(testset,
                              batch_size=args.b,
                              shuffle=False,
-                             num_workers=4,
+                             num_workers=0,
                              pin_memory=True
                              ) 
 

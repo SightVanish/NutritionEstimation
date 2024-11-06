@@ -26,6 +26,9 @@ def set_seed(args):
     if n_gpu > 0:
         torch.cuda.manual_seed_all(args.seed)
 
+log_file_path = './log/train_log.txt'
+
+
 parser = argparse.ArgumentParser(description='PyTorch CIFAR10/CIFAR100 Training')
 parser.add_argument('--lr', default=1e-4, type=float, help='learning rate')
 parser.add_argument('--wd', default=0.9, type=float, help='weight decay') # 5e-4
@@ -197,11 +200,15 @@ def train(epoch,net):
         optimizer.zero_grad()
 
         outputs = net(inputs)
+        # torch.onnx.export(net, inputs, "net.onnx")
 
         p2, p3, p4, p5 = outputs
         outputs_rgbd = net2(inputs_rgbd)
+        # torch.onnx.export(net2, inputs_rgbd, "net2.onnx")
+        
         d2, d3, d4, d5 = outputs_rgbd
         outputs = net_cat([p2, p3, p4, p5], [d2, d3, d4, d5])
+        # torch.onnx.export(net_cat, ([p2, p3, p4, p5], [d2, d3, d4, d5]), "net_cat.onnx")
 
         #loss
         total_calories_loss = total_calories.shape[0]* criterion(outputs[0], total_calories)  / total_calories.sum().item() 
@@ -291,6 +298,8 @@ def test(epoch,net):
 
             if epoch % 1 ==0:
                 for i in range(len(x[1])):
+                    print(outputs)
+                    exit()
                     dish_id = x[1][i]
                     calories = outputs[0][i]
                     mass =  outputs[1][i]

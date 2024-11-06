@@ -1,0 +1,3 @@
+Epoch: [0][1/1]	Loss: 4.99682 	calorieloss: 0.99871 	massloss: 0.99954 	fatloss: 0.98566 	carbloss: 0.97649 	proteinloss: 1.03642 	lr:0.0000500
+Epoch: [0][1/1]	Loss: 4.99682 	calorieloss: 0.99871 	massloss: 0.99954 	fatloss: 0.98566 	carbloss: 0.97649 	proteinloss: 1.03642 	lr:0.0000500
+Epoch: [0][1/1]	Loss: 4.99682 	calorieloss: 0.99871 	massloss: 0.99954 	fatloss: 0.98566 	carbloss: 0.97649 	proteinloss: 1.03642 	lr:0.0000500
