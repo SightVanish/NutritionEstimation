@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
-from utils import Nutrition_RGBD  # Assuming Nutrition_RGBD class is saved in a file called Nutrition_RGBD.py
+from utils_data import Nutrition_RGBD  # Assuming Nutrition_RGBD class is saved in a file called Nutrition_RGBD.py
 
 # Set up the transformation for the images
 # the input image size is (640, 480)
