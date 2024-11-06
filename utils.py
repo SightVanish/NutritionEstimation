@@ -99,17 +99,15 @@ def get_transforms(dataset, model=None):
     
     return train_transform, test_transform
 
-
-
 def get_dataset(args, train_transform, test_transform):
     """Load the appropriate dataset (nutrition_rgb or nutrition_rgbd) based on args."""
     if args.dataset == 'nutrition_rgb':
         image_path = os.path.join(args.data_root, 'imagery')
         train_txt = os.path.join(args.data_root, 'imagery', 'rgb_train_processed.txt')
         test_txt = os.path.join(args.data_root, 'imagery', 'rgb_test_processed.txt')
-        
-        trainset = Nutrition(image_path=image_path, txt_dir=train_txt, transform=train_transform)
-        testset = Nutrition(image_path=image_path, txt_dir=test_txt, transform=test_transform)
+
+        trainset = Nutrition_RGBD(image_path=image_path, txt_dir=train_txt, transform=train_transform)
+        testset = Nutrition_RGBD(image_path=image_path, txt_dir=test_txt, transform=test_transform)
 
     elif args.dataset == 'nutrition_rgbd':
         image_path = os.path.join(args.data_root, 'imagery')
@@ -123,6 +121,8 @@ def get_dataset(args, train_transform, test_transform):
     else:
         raise ValueError("Unsupported dataset type")
     return trainset, testset
+
+
 
 # def get_DataLoader(args):
 #     """Main function to get data loaders for training and testing."""
