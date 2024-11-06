@@ -1,52 +1,57 @@
-import torch
-import torch.nn as nn
-import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
-from utils import Nutrition_RGBD  # Assuming Nutrition_RGBD class is saved in a file called Nutrition_RGBD.py
+import matplotlib.pyplot as plt
+import numpy as np
+from data_loader import Nutrition5kDataset
 
-# Set up the transformation for the images
-# the input image size is (640, 480)
-transform = transforms.Compose([
-    # transforms.Resize((224, 224)),
-    transforms.ToTensor()
-])
+# Assume the Nutrition5kDataset class has been defined as provided earlier
 
-# Define the file paths
-image_path = 'data/nutrition5k_dataset/imagery'
-rgb_txt_path = 'data/nutrition5k_dataset/imagery/rgb_in_overhead_test_processed.txt'
-rgbd_txt_path = 'data/nutrition5k_dataset/imagery/rgbd_test_processed.txt'
+# Set up the paths (replace with your actual paths)
+root_dir = 'data/nutrition5k_dataset/imagery'  # Replace with your actual path
+label_file = 'label_train.txt'
 
-# Initialize the dataset and data loader
-dataset = Nutrition_RGBD(image_path=image_path, rgb_txt_dir=rgb_txt_path, rgbd_txt_dir=rgbd_txt_path, transform=transform)
-data_loader = DataLoader(dataset, batch_size=1, shuffle=True)
+# Instantiate the dataset
+dataset = Nutrition5kDataset(root_dir=root_dir, label_file=label_file, transform=True)
 
-# Define a naive model for testing
-class SimpleModel(nn.Module):
-    def __init__(self):
-        super(SimpleModel, self).__init__()
-        self.conv = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1)
-        self.fc = nn.Linear(16 * 640 * 480, 5)  # Adjusting output to 5 for calories, mass, fat, carb, protein
+# Create the DataLoader
+dataloader = DataLoader(dataset, batch_size=4, shuffle=True, num_workers=0)
 
-    def forward(self, x):
-        x = self.conv(x)
-        x = x.view(x.size(0), -1)  # Flatten the tensor
-        return self.fc(x)
+# Fetch a single batch
+inputs, labels = next(iter(dataloader))
 
-# Instantiate the model and set to evaluation mode
-model = SimpleModel()
-model.eval()
+# Print the shapes of inputs and labels
+print('Input tensor shape:', inputs.shape)  # Expected: [batch_size, 6, 224, 224]
+print('Labels shape:', labels.shape)        # Expected: [batch_size, 5]
 
-# Load and view the RGBD image
-for i, (img_rgb, label, calories, mass, fat, carb, protein, img_rgbd) in enumerate(data_loader):
-    print(f"RGB Image shape: {img_rgb.shape}")
-    print(f"Depth Image shape: {img_rgbd.shape}")
+# Print the data types
+print('Input tensor type:', inputs.dtype)   # Expected: torch.float32
+print('Labels type:', labels.dtype)         # Expected: torch.float32
+
+# Optionally, visualize the images
+def imshow(input_tensor):
+    # Unnormalize the image
+    input_tensor = input_tensor.numpy()
+    mean = np.array([0.485, 0.456, 0.406]*2).reshape(6, 1, 1)
+    std = np.array([0.229, 0.224, 0.225]*2).reshape(6, 1, 1)
+    input_tensor = std * input_tensor + mean  # Unnormalize
+    input_tensor = np.clip(input_tensor, 0, 1)
     
-    # Concatenate RGB and Depth images along the channel dimension if needed
-    rgbd_input = torch.cat((img_rgb, img_rgbd), dim=1)
-    print(f"Concatenated RGBD input shape: {rgbd_input.shape}")
+    # Split the tensor into two images
+    depth_color_image = input_tensor[:3, :, :]
+    depth_raw_image = input_tensor[3:, :, :]
     
-    # Forward pass through the model (using only the RGB image for simplicity)
-    output = model(img_rgb)
-    print(f"Model output: {output}")
+    # Transpose the images for matplotlib (C x H x W) -> (H x W x C)
+    depth_color_image = np.transpose(depth_color_image, (1, 2, 0))
+    depth_raw_image = np.transpose(depth_raw_image, (1, 2, 0))
+    
+    # Plot both images side by side
+    fig, axs = plt.subplots(1, 2, figsize=(8, 4))
+    axs[0].imshow(depth_color_image)
+    axs[0].set_title('Depth Color Image')
+    axs[0].axis('off')
+    axs[1].imshow(depth_raw_image)
+    axs[1].set_title('Depth Raw Image')
+    axs[1].axis('off')
+    plt.show()
 
-    break  # Only run one batch for demonstration
+# Visualize the first sample in the batch
+imshow(inputs[0])
