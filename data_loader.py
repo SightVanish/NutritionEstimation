@@ -6,7 +6,6 @@ from PIL import Image
 from torchvision import transforms
 from typing import Optional
 
-# Define the Nutrition5kDataset class (as before)
 class Nutrition5kDataset(Dataset):
     def __init__(self, root_dir: str, label_file: str, transform: Optional[transforms.Compose] = None):
         self.root_dir = root_dir
@@ -17,39 +16,41 @@ class Nutrition5kDataset(Dataset):
             lines = f.readlines()
             for line in lines:
                 parts = line.strip().split()
-                rgb_rel_path = parts[0]
+                rgb_rel_path = parts[0]  # Path to rgb.png
                 labels = list(map(float, parts[2:]))
                 depth_dir = os.path.dirname(rgb_rel_path)
                 depth_color_rel_path = os.path.join(depth_dir, 'depth_color.png')
-                depth_raw_rel_path = os.path.join(depth_dir, 'depth_raw.png')
+                rgb_path = os.path.join(self.root_dir, rgb_rel_path)
                 depth_color_path = os.path.join(self.root_dir, depth_color_rel_path)
-                depth_raw_path = os.path.join(self.root_dir, depth_raw_rel_path)
                 self.samples.append({
+                    'rgb_path': rgb_path,
                     'depth_color_path': depth_color_path,
-                    'depth_raw_path': depth_raw_path,
                     'labels': torch.tensor(labels, dtype=torch.float32)
                 })
+        # Define transforms if not provided
+        if self.transform is None:
+            self.transform = transforms.Compose([
+                transforms.Resize((224, 224)),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                     std=[0.229, 0.224, 0.225])
+            ])
+
     def __len__(self):
         return len(self.samples)
+
     def __getitem__(self, idx):
         sample = self.samples[idx]
-        depth_color_image = Image.open(sample['depth_color_path']).convert('RGB')
-        depth_raw_image = Image.open(sample['depth_raw_path']).convert('RGB')
-        # Apply resizing and conversion to tensor
-        basic_transform = transforms.Compose([
-            transforms.Resize((224, 224)),
-            transforms.ToTensor()
-        ])
-        depth_color_image = basic_transform(depth_color_image)
-        depth_raw_image = basic_transform(depth_raw_image)
-        # Concatenate tensors along the channel dimension
-        input_tensor = torch.cat((depth_color_image, depth_raw_image), dim=0)
-        # Normalize the concatenated tensor
-        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406]*2,
-                                         std=[0.229, 0.224, 0.225]*2)
-        input_tensor = normalize(input_tensor)
+        # Load images
+        rgb_image = Image.open(sample['rgb_path']).convert('RGB')
+        depth_image = Image.open(sample['depth_color_path']).convert('RGB')
+        # Apply transforms
+        if self.transform:
+            rgb_image = self.transform(rgb_image)
+            depth_image = self.transform(depth_image)
         labels = sample['labels']
-        return input_tensor, labels
+        return rgb_image, depth_image, labels
+
 
 # Function to get the dataset
 def get_nutrition5k_dataset(root_dir: str, label_file: str) -> Nutrition5kDataset:
@@ -60,7 +61,6 @@ def get_nutrition5k_dataset(root_dir: str, label_file: str) -> Nutrition5kDatase
 def get_dataloader(dataset: torch.utils.data.Dataset, batch_size: int, shuffle: bool = True, num_workers: int = 4) -> DataLoader:
     """Returns a DataLoader for the given dataset."""
     return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
-
 
 # Define a naive model for testing
 class NaiveModel(nn.Module):
@@ -103,7 +103,7 @@ if __name__ == '__main__':
     # Move model to GPU if available
 
     if torch.backends.mps.is_available():
-        print("MPS backend is available.")
+        print("Training with MPS backend.")
     else:
         print("MPS backend is not available.")
     device = torch.device('mps' if torch.backends.mps.is_available() else 'cpu')
@@ -111,7 +111,9 @@ if __name__ == '__main__':
 
     # Testing loop (one epoch)
     model.train()
-    for batch_idx, (inputs, labels) in enumerate(dataloader):
+    for batch_idx, (rgb_image, depth_image, labels) in enumerate(dataloader):
+        inputs = torch.cat((rgb_image, depth_image), dim=1)
+        
         inputs = inputs.to(device)
         labels = labels.to(device)
 
