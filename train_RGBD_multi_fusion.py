@@ -102,7 +102,7 @@ set_seed(args)
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 best_acc = 0  # best test accuracy
 start_epoch = 0  # start from epoch 0 or last checkpoint epoch
-global_step = 0 #lmj 记录tensorboard中的横坐标
+global_step = 0 # number of training steps
 
 # Data
 print('==> Preparing data..')
@@ -113,7 +113,7 @@ print('==> Building model..')
 global net
 
 print('==> Load checkpoint..')
-resnet101_food2k = torch.load("/icislab/volume1/swj/nutrition/CHECKPOINTS/food2k_resnet101_0.0001.pth")
+resnet101_food2k = torch.load("/nutrition/CHECKPOINTS/food2k_resnet101_0.0001.pth")
 pretrained_dict = resnet101_food2k
 
 # model definition
@@ -181,13 +181,13 @@ def train(epoch,net):
 
     for batch_idx, x in enumerate(epoch_iterator):
         '''Portion Independent Model'''
-        inputs = x[0].to(device)
+        inputs = x[0].to(device) # rgb image
         total_calories = x[2].to(device).float()
         total_mass = x[3].to(device).float()
         total_fat = x[4].to(device).float()
         total_carb = x[5].to(device).float()
         total_protein = x[6].to(device).float()
-        inputs_rgbd = x[7].to(device)
+        inputs_rgbd = x[7].to(device) # depth image
 
         if batch_idx % 10 == 0:
             ns = image_sizes[random.randint(0,4)]
@@ -196,11 +196,8 @@ def train(epoch,net):
 
         optimizer.zero_grad()
 
-        outputs = net(inputs)
-
-        p2, p3, p4, p5 = outputs
-        outputs_rgbd = net2(inputs_rgbd)
-        d2, d3, d4, d5 = outputs_rgbd
+        p2, p3, p4, p5 = net(inputs)
+        d2, d3, d4, d5 = net2(inputs_rgbd)
         outputs = net_cat([p2, p3, p4, p5], [d2, d3, d4, d5])
 
         #loss

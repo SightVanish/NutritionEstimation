@@ -3,7 +3,6 @@ import torch.nn as nn
 from torch.hub import load_state_dict_from_url
 import torch.nn.functional as F
 
-import numpy as np
 from necks.bfp import BFP
 
 __all__ = ['ResNet', 'resnet101']
@@ -56,46 +55,6 @@ class SpatialAttention(nn.Module):
         x = torch.cat([avg_out, max_out], dim=1)
         x = self.conv1(x)
         return self.sigmoid(x)
-
-
-class BasicBlock(nn.Module):
-    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1,
-                 base_width=64, dilation=1, norm_layer=None):
-        super(BasicBlock, self).__init__()
-        if norm_layer is None:
-            norm_layer = nn.BatchNorm2d
-        if groups != 1 or base_width != 64:
-            raise ValueError('BasicBlock only supports groups=1 and base_width=64')
-        if dilation > 1:
-            raise NotImplementedError("Dilation > 1 not supported in BasicBlock")
-
-        # Both self.conv1 and self.downsample layers downsample the input when stride != 1
-        self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn1 = norm_layer(planes)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planes, planes)
-        self.bn2 = norm_layer(planes)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        identity = x
-
-        conv1 = self.conv1(x)
-        bn1 = self.bn1(conv1)
-        layer1 = self.relu(bn1)
-
-        conv2 = self.conv2(layer1)
-        bn2 = self.bn2(conv2)
-
-        if self.downsample is not None:
-            identity = self.downsample(x)
-
-        bn2 += identity
-        out = self.relu(bn2)
-
-        return out
-
 
 class Bottleneck(nn.Module):
     # Bottleneck in torchvision places the stride for downsampling at 3x3 convolution(self.conv2)
@@ -154,9 +113,8 @@ class ResNet(nn.Module):
     # layers = [3, 4, 23, 3]
     # rgb-d = true
     # bbox = False
-    def __init__(self, block, layers, rgbd, bbox, num_classes=1000, zero_init_residual=False,
-                 groups=1, width_per_group=64, replace_stride_with_dilation=None,
-                 norm_layer=None):
+    def __init__(self, block, layers, rgbd, bbox, num_classes=1000,
+                 groups=1, width_per_group=64, norm_layer=None):
         super(ResNet, self).__init__()
 
         self._norm_layer = nn.BatchNorm2d
@@ -173,12 +131,10 @@ class ResNet(nn.Module):
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
 
         self.layer1 = self._make_layer(block, 64, layers[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2,
-                                       dilate=replace_stride_with_dilation[0])
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2,
-                                       dilate=replace_stride_with_dilation[1])
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
-                                       dilate=replace_stride_with_dilation[2])
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
+
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
 
         for m in self.modules():
@@ -188,42 +144,20 @@ class ResNet(nn.Module):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
 
-        # Zero-initialize the last BN in each residual branch,
-        # so that the residual branch starts with zeros, and each residual block behaves like an identity.
-        # This improves the model by 0.2~0.3% according to https://arxiv.org/abs/1706.02677
-        if zero_init_residual:
-            for m in self.modules():
-                if isinstance(m, Bottleneck):
-                    nn.init.constant_(m.bn3.weight, 0)
-                elif isinstance(m, BasicBlock):
-                    nn.init.constant_(m.bn2.weight, 0)
-
         # Top layer
-        # 用于conv5,因为没有更上一层的特征了，也不需要smooth的部分
         self.toplayer = nn.Conv2d(2048, 256, kernel_size=1, stride=1, padding=0)  # Reduce channels
 
         # Smooth layers
-        # 分别用于conv4,conv3,conv2（按顺序）
         self.smooth1 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
         self.smooth2 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
         self.smooth3 = nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)
 
         # Lateral layers
-        # 分别用于conv4,conv3,conv2（按顺序）
-        self.latlayer1 = nn.Conv2d(1024, 256, kernel_size=1, stride=1, padding=0)
-        self.latlayer2 = nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0)
-        self.latlayer3 = nn.Conv2d(256, 256, kernel_size=1, stride=1, padding=0)
-        self.rgbd = rgbd
-        # 1102
-        self.yolobox = bbox
-        # 1026
-        self.adaAvgPool = nn.AdaptiveAvgPool2d((8, 8))
-        # 1102
-        self.avgpool_rgbonly = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc3 = nn.Linear(1024, 1024)
+        self.latlayer1 = nn.Conv2d(1024, 256, kernel_size=1, stride=1, padding=0) # c4
+        self.latlayer2 = nn.Conv2d(512, 256, kernel_size=1, stride=1, padding=0) # c3
+        self.latlayer3 = nn.Conv2d(256, 256, kernel_size=1, stride=1, padding=0) # c2
 
     def _upsample_add(self, x, y):
-        # 将输入x上采样两倍，并与y相加
         '''Upsample and add two feature maps.
 
         Args:
@@ -247,15 +181,10 @@ class ResNet(nn.Module):
         _, _, H, W = y.size()
         return F.upsample(x, size=(H, W), mode='bilinear') + y
 
-    def _make_layer(self, block, planes, blocks, stride=1, dilate=False):
+    def _make_layer(self, block, planes, blocks, stride=1):
         norm_layer = self._norm_layer
         downsample = None
         previous_dilation = self.dilation
-        # each element in the tuple indicates if we should replace
-        # the 2x2 stride with a dilated convolution instead
-        if dilate:
-            self.dilation *= stride
-            stride = 1
         if stride != 1 or self.inplanes != planes * block.expansion:
             downsample = nn.Sequential(
                 conv1x1(self.inplanes, planes * block.expansion, stride),
@@ -273,16 +202,14 @@ class ResNet(nn.Module):
 
         return nn.Sequential(*layers)
 
-    def _forward_impl_bbox(self, x, bbox):
+    def _forward_impl(self, x):
         # Bottom-up  FPN
         c1 = F.relu(self.bn1(self.conv1(x)))
         c1 = F.max_pool2d(c1, kernel_size=3, stride=2, padding=1)
         c2 = self.layer1(c1)
         c3 = self.layer2(c2)
         c4 = self.layer3(c3)
-        c5 = self.layer4(c4)
-
-        # before 1108
+        c5 = self.layer4(c4)  # torch.Size([1, 2048, 8, 8]) when image input ==(256,256)
         # Top-down
         p5 = self.toplayer(c5)
         p4 = self._upsample_add(p5, self.latlayer1(c4))
@@ -291,109 +218,11 @@ class ResNet(nn.Module):
         # Smooth
         p4 = self.smooth1(p4)
         p3 = self.smooth2(p3)
-        p2 = self.smooth3(p2)  # [b, 256, 67, 89]
-
-        output = []
-        for i, box in enumerate(bbox):
-            if box != '':  # 有几张图片没有bbox
-                # pdb.set_trace()
-                with open(box, "r+", encoding="utf-8", errors="ignore") as f:
-                    # w,h = 89, 67   #resize后的图片
-                    w, h = p2.shape[3], p2.shape[2]
-                    allLabels = []
-                    for line in f:
-                        label = []
-                        aa = line.split(" ")
-                        # pdb.set_trace()
-                        x_center = w * float(aa[1])  # aa[1]左上点的x坐标
-                        y_center = h * float(aa[2])  # aa[2]左上点的y坐标
-                        width = int(w * float(aa[3]))  # aa[3]图片width
-                        height = int(h * float(aa[4]))  # aa[4]图片height
-                        lefttopx = int(x_center - width / 2.0)
-                        lefttopy = int(y_center - height / 2.0)
-                        label = [lefttopx, lefttopy, lefttopx + width, lefttopy + height]
-                        allLabels.append(label)
-
-                    nparray = np.array(allLabels)
-                    # 可能存在多个位置labels
-                    lefttopx = nparray[:, 0].min()
-                    lefttopy = nparray[:, 1].min()
-                    # width = nparray[:,2].max()
-                    # height = nparray[:,3].max()
-                    left_plus_width = nparray[:, 2].max()
-                    top_plus_height = nparray[:, 3].max()
-
-                    # pdb.set_trace()
-                    roi = p2[i][..., lefttopy + 1:top_plus_height + 3, lefttopx + 1:left_plus_width + 1]
-                    # 池化统一大小
-                    output.append(F.adaptive_avg_pool2d(roi, (2, 2)))
-            elif box == '':
-                # pdb.set_trace()
-                output.append(F.adaptive_avg_pool2d(p2[i], (2, 2)))
-        output = torch.stack(output, dim=0)
-        x = torch.flatten(output, 1)
-        x = self.fc3(x)
-        x = F.relu(x)
-        results = []
-        results.append(self.calorie(x).squeeze())  # 2048
-        results.append(self.mass(x).squeeze())
-        results.append(self.fat(x).squeeze())
-        results.append(self.carb(x).squeeze())
-        results.append(self.protein(x).squeeze())
-        return results
-
-    # Normal
-    def _forward_impl(self, x):
-        # See note [TorchScript super()]
-        if not self.rgbd:
-            x = self.conv1(x)  # torch.Size([16, 3, 267, 356])
-            x = self.bn1(x)
-            x = self.relu(x)
-            x = self.maxpool(x)
-
-            x = self.layer1(x)
-            x = self.layer2(x)
-            x = self.layer3(x)
-            x = self.layer4(x)  # torch.Size([16, 2048, 9, 12])
-
-            # pdb.set_trace()
-            x = self.avgpool(x)  # 统一进行自适应平均池化，即使输入图片大小不同，x的输出也相同
-            x = torch.flatten(x, 1)
-            x = self.fc1(x)
-            x = self.fc2(x)
-            x = F.relu(x)
-            results = []
-            results.append(self.calorie(x).squeeze())  # 2048
-            results.append(self.mass(x).squeeze())
-            results.append(self.fat(x).squeeze())
-            results.append(self.carb(x).squeeze())
-            results.append(self.protein(x).squeeze())
-            return results
-
-        elif self.rgbd:
-            # Bottom-up  FPN
-            c1 = F.relu(self.bn1(self.conv1(x)))
-            c1 = F.max_pool2d(c1, kernel_size=3, stride=2, padding=1)
-            c2 = self.layer1(c1)
-            c3 = self.layer2(c2)
-            c4 = self.layer3(c3)
-            c5 = self.layer4(c4)  # torch.Size([1, 2048, 8, 8]) when image input ==(256,256)
-            # Top-down
-            p5 = self.toplayer(c5)
-            p4 = self._upsample_add(p5, self.latlayer1(c4))
-            p3 = self._upsample_add(p4, self.latlayer2(c3))
-            p2 = self._upsample_add(p3, self.latlayer3(c2))
-            # Smooth
-            p4 = self.smooth1(p4)
-            p3 = self.smooth2(p3)
-            p2 = self.smooth3(p2)
-            return p2, p3, p4, p5
+        p2 = self.smooth3(p2)
+        return p2, p3, p4, p5
 
     def forward(self, x, bbox=None):
-        if self.yolobox:
-            return self._forward_impl_bbox(x, bbox)
-        else:
-            return self._forward_impl(x)
+        return self._forward_impl(x)
 
 class Resnet101_concat(nn.Module):
     def __init__(self):
@@ -436,9 +265,9 @@ class Resnet101_concat(nn.Module):
         # BFP
         cat0, cat1, cat2, cat3 = self.refine(tuple((cat0, cat1, cat2, cat3)))
         cat0 = self.smooth1(cat0)  # torch.Size([16, 512, 64, 64])
-        cat1 = self.smooth1(cat1)  # torch.Size([16, 512, 32, 32])
-        cat2 = self.smooth1(cat2)  # torch.Size([16, 512, 16, 16])
-        cat3 = self.smooth1(cat3)  # torch.Size([16, 512, 8, 8])
+        cat1 = self.smooth2(cat1)  # torch.Size([16, 512, 32, 32])
+        cat2 = self.smooth3(cat2)  # torch.Size([16, 512, 16, 16])
+        cat3 = self.smooth4(cat3)  # torch.Size([16, 512, 8, 8])
         # CMBA
         cat0 = self.ca0(cat0) * cat0
         cat0 = self.sa0(cat0) * cat0
