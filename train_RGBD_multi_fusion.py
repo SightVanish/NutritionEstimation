@@ -70,7 +70,7 @@ parser.add_argument('--transfer_model', type=str, default=None,
 parser.add_argument('--transfer_ratio', type=float, default=0.01,
                     help='lr ratio between classifier and backbone in transfer learning')
 
-parser.add_argument('--data_root', type=str, default = "/icislab/volume1/swj/nutrition/nutrition5k/nutrition5k_dataset", help="our dataset root")
+parser.add_argument('--data_root', type=str, default = "/Users/liwuchen/Documents/NutritionEstimation/data/nutrition5k_dataset/", help="our dataset root")
 parser.add_argument('--run_name',type=str, default="editname")
 parser.add_argument('--print_freq', type=int, default=200,help="the frequency of write to logtxt" )
 parser.add_argument("--warmup_steps", default=500, type=int,
@@ -121,15 +121,15 @@ net = myresnet.resnet101(rgbd = args.rgbd)
 net2 = myresnet.resnet101(rgbd = args.rgbd)
 net_cat = myresnet.Resnet101_concat()
 
-model_dict = net.state_dict()
-new_state_dict = OrderedDict()
-for k, v in pretrained_dict.items():
-    if k in model_dict:
-        name = k[7:] if k.startswith('module') else k
-        new_state_dict[name] = v
-model_dict.update(new_state_dict)
-net.load_state_dict(model_dict)
-net2.load_state_dict(model_dict)
+# model_dict = net.state_dict()
+# new_state_dict = OrderedDict()
+# for k, v in pretrained_dict.items():
+#     if k in model_dict:
+#         name = k[7:] if k.startswith('module') else k
+#         new_state_dict[name] = v
+# model_dict.update(new_state_dict)
+# net.load_state_dict(model_dict)
+# net2.load_state_dict(model_dict)
 
 net = net.to(device)
 net2 = net2.to(device)
@@ -146,9 +146,9 @@ criterion = nn.L1Loss()
 parameters = net.parameters()
 
 optimizer = torch.optim.Adam([
-        {'params': net.module.parameters(),'lr':5e-5, 'weight_decay': 5e-4},#5e-4
-        {'params': net2.module.parameters(), 'lr':5e-5, 'weight_decay': 5e-4},#5e-4
-         {'params': net_cat.module.parameters(),'lr':5e-5, 'weight_decay': 5e-4}#5e-4
+        {'params': net.parameters(),'lr':5e-5, 'weight_decay': 5e-4},#5e-4
+        {'params': net2.parameters(), 'lr':5e-5, 'weight_decay': 5e-4},#5e-4
+         {'params': net_cat.parameters(),'lr':5e-5, 'weight_decay': 5e-4}#5e-4
          ])
 scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.99) # 0.99 (RGBD )
 
@@ -367,9 +367,9 @@ def test(epoch,net):
             f_csv.writerows(new_csv_rows)
 
 
-log_file_path = os.path.join("/icislab/volume1/swj/nutrition/logs/new",f'checkpoint_{args.dataset}_{args.model}_{args.run_name}',"train_log.txt")
-check_dirs(os.path.join("/icislab/volume1/swj/nutrition/logs/new",f'checkpoint_{args.dataset}_{args.model}_{args.run_name}'))
-logtxt(log_file_path, str(vars(args)))
+# log_file_path = os.path.join("./logs/new",f'checkpoint_{args.dataset}_{args.model}_{args.run_name}',"train_log.txt")
+# check_dirs(os.path.join("./nutrition/logs/new",f'checkpoint_{args.dataset}_{args.model}_{args.run_name}'))
+# logtxt(log_file_path, str(vars(args)))
 for epoch in range(start_epoch, start_epoch+300):
     train(epoch,net)
     test(epoch,net)

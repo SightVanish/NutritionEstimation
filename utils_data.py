@@ -26,9 +26,9 @@ def get_DataLoader(args):
     # get file paths
     nutrition_rgbd_ims_root = os.path.join(args.data_root, 'imagery')
     nutrition_train_txt = os.path.join(args.data_root, 'imagery','rgbd_train_processed.txt')
-    nutrition_test_txt = os.path.join(args.data_root, 'imagery','rgbd_test_processed1.txt')
+    nutrition_test_txt = os.path.join(args.data_root, 'imagery','rgbd_test_processed.txt')
     nutrition_train_rgbd_txt = os.path.join(args.data_root, 'imagery','rgb_in_overhead_train_processed.txt')
-    nutrition_test_rgbd_txt = os.path.join(args.data_root, 'imagery','rgb_in_overhead_test_processed1.txt')
+    nutrition_test_rgbd_txt = os.path.join(args.data_root, 'imagery','rgb_in_overhead_test_processed.txt')
 
     # get training dataset
     trainset = Nutrition_RGBD(nutrition_rgbd_ims_root, nutrition_train_rgbd_txt, nutrition_train_txt, transform = train_transform)
