@@ -4,42 +4,42 @@ import os
 from tqdm import tqdm
 from model import RGBDFusionNetwork  # Replace with your model file
 from loss import NutritionLoss  # Replace with your loss function file
-from data_loader import get_nutrition5k_dataset, get_dataloader  # Replace with your dataset loading functions
+from data_loader import get_nutrition5k_datasets, get_dataloader  # Replace with your dataset loading functions
+from utils import get_device
+
 
 def main():
-    # Set the root directory and label file paths
-    root_dir = 'data/nutrition5k_dataset/imagery'  # Replace with your actual path
-    label_file = 'label_train.txt'
+    # Set paths
+    root_dir = 'data/nutrition5k_dataset'
+    label_file = 'imagery/label.txt'
+    checkpoint_dir = "checkpoints"
+    log_dir = "logs"
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    os.makedirs(log_dir, exist_ok=True)
 
-    # Set device to MPS if available, else CPU
-    if torch.backends.mps.is_available():
-        device = torch.device('mps')
-        print("Using MPS device for training.")
-    else:
-        device = torch.device('cpu')
-        print("MPS device not found. Using CPU.")
+    # Set device
+    device = get_device()
 
     # Hyperparameters
     num_epochs = 100
     batch_size = 16
     learning_rate = 1e-3
     patience = 10  # Early stopping patience
-    checkpoint_dir = "checkpoints"
-    os.makedirs(checkpoint_dir, exist_ok=True)
 
-    # Get the dataset and dataloader
-    dataset = get_nutrition5k_dataset(root_dir=root_dir, label_file=label_file)
-    dataloader = get_dataloader(dataset, batch_size=batch_size, shuffle=True)
+    # Load datasets
+    train_dataset, val_dataset, test_dataset = get_nutrition5k_datasets(root_dir, label_file, 0.5, 0.5)
+    train_loader = get_dataloader(train_dataset, batch_size=batch_size, shuffle=True)
+    val_loader = get_dataloader(val_dataset, batch_size=batch_size, shuffle=False)
 
-    # Initialize the model, loss function, and optimizer
+    # Initialize model, loss function, and optimizer
     model = RGBDFusionNetwork()
     model.to(device)
 
-    loss_fn = NutritionLoss(num_tasks=5)
+    loss_fn = NutritionLoss(num_tasks=4)  # Adjust num_tasks if needed
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
     # TensorBoard setup
-    writer = SummaryWriter(log_dir="logs")
+    writer = SummaryWriter(log_dir=log_dir)
 
     # Early stopping and best model tracking
     best_val_loss = float('inf')
@@ -47,11 +47,10 @@ def main():
 
     print("Starting training...")
     for epoch in range(num_epochs):
+        # Training phase
         model.train()
         running_loss = 0.0
-
-        # Training loop
-        for batch_idx, (rgb_inputs, depth_inputs, labels) in enumerate(tqdm(dataloader, desc=f"Epoch {epoch+1}/{num_epochs}")):
+        for batch_idx, (rgb_inputs, depth_inputs, labels) in enumerate(tqdm(train_loader, desc=f"Epoch {epoch + 1}/{num_epochs}")):
             rgb_inputs = rgb_inputs.to(device, dtype=torch.float32)
             depth_inputs = depth_inputs.to(device, dtype=torch.float32)
             labels = labels.to(device, dtype=torch.float32)
@@ -72,11 +71,11 @@ def main():
             running_loss += loss.item() * rgb_inputs.size(0)
 
         # Calculate average training loss
-        train_loss = running_loss / len(dataloader.dataset)
+        train_loss = running_loss / len(train_loader.dataset)
         writer.add_scalar('Loss/Train', train_loss, epoch + 1)
 
-        # Validation (replace with your validation loader)
-        val_loss = validate_model(model, dataloader, loss_fn, device)
+        # Evaluation phase
+        val_loss = validate_model(model, val_loader, loss_fn, device)
         writer.add_scalar('Loss/Validation', val_loss, epoch + 1)
 
         # Save the best model weights
@@ -91,7 +90,7 @@ def main():
         # Save the last model weights after each epoch
         torch.save(model.state_dict(), os.path.join(checkpoint_dir, "last_model.pth"))
 
-        print(f"Epoch {epoch+1}/{num_epochs}: Train Loss = {train_loss:.4f}, Validation Loss = {val_loss:.4f}")
+        print(f"Epoch {epoch + 1}/{num_epochs}: Train Loss = {train_loss:.4f}, Validation Loss = {val_loss:.4f}")
 
         # Early stopping
         if early_stop_counter >= patience:
@@ -99,13 +98,13 @@ def main():
             break
 
     writer.close()
-    print("Training completed successfully. Best model saved as 'best_model.pth' and last model as 'last_model.pth'.")
+    print("Training completed. Best model saved as 'best_model.pth' and last model as 'last_model.pth'.")
+
 
 def validate_model(model, val_loader, loss_fn, device):
     """Validation loop."""
     model.eval()
     val_loss = 0.0
-
     with torch.no_grad():
         for rgb_inputs, depth_inputs, labels in val_loader:
             rgb_inputs = rgb_inputs.to(device, dtype=torch.float32)
@@ -118,6 +117,7 @@ def validate_model(model, val_loader, loss_fn, device):
 
     val_loss /= len(val_loader.dataset)
     return val_loss
+
 
 if __name__ == '__main__':
     main()

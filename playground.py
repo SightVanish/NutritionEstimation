@@ -1,135 +1,177 @@
+import os
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torchvision.models import resnet101, ResNet101_Weights
+from torch.utils.data import Dataset, DataLoader, random_split
+from torchvision import transforms
+from PIL import Image
+from typing import Optional, Tuple
 
-# Helper Modules
-class CBAM(nn.Module):
-    """Convolutional Block Attention Module."""
-    def __init__(self, channels, reduction=16, kernel_size=7):
-        super(CBAM, self).__init__()
-        self.channel_attention = nn.Sequential(
-            nn.AdaptiveAvgPool2d(1),
-            nn.Conv2d(channels, channels // reduction, 1, bias=False),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(channels // reduction, channels, 1, bias=False),
-            nn.Sigmoid()
-        )
-        self.spatial_attention = nn.Sequential(
-            nn.Conv2d(2, 1, kernel_size, padding=kernel_size // 2, bias=False),
-            nn.Sigmoid()
-        )
+class Nutrition5kDataset(Dataset):
+    def __init__(self, root_dir: str, label_file: str, transform: Optional[transforms.Compose] = None):
+        """
+        Initialize the Nutrition5kDataset.
 
-    def forward(self, x):
-        # Channel Attention
-        x_channel = self.channel_attention(x) * x
-        # Spatial Attention
-        avg_out = torch.mean(x_channel, dim=1, keepdim=True)
-        max_out, _ = torch.max(x_channel, dim=1, keepdim=True)
-        x_spatial = self.spatial_attention(torch.cat([avg_out, max_out], dim=1))
-        return x_channel * x_spatial
+        Args:
+            root_dir (str): Path to the root directory of the dataset.
+            label_file (str): Path to the label file (relative to root_dir).
+            transform (Optional[transforms.Compose]): Transformations to apply to the images.
+        """
+        self.root_dir = root_dir
+        self.transform = transform
+        self.samples = []
+        label_path = os.path.join(self.root_dir, label_file)
+        
+        # Parse the label file
+        with open(label_path, 'r') as f:
+            lines = f.readlines()
+            for line in lines:
+                parts = line.strip().split(',')
+                
+                # Extract paths and label values
+                dish_id = parts[0]
+                rgb_rel_path = f"imagery/realsense_overhead/{dish_id}/rgb.png"
+                depth_color_rel_path = f"imagery/realsense_overhead/{dish_id}/depth_color.png"
+                
+                # Nutritional values (adjust indices based on the actual structure)
+                calories, fat, protein, carbs = map(float, parts[1:5])
+                labels = torch.tensor([calories, fat, protein, carbs], dtype=torch.float32)
+                
+                # Construct absolute paths
+                rgb_path = os.path.join(self.root_dir, rgb_rel_path)
+                depth_color_path = os.path.join(self.root_dir, depth_color_rel_path)
+                
+                # Store the sample
+                self.samples.append({
+                    'rgb_path': rgb_path,
+                    'depth_color_path': depth_color_path,
+                    'labels': labels
+                })
 
+    def __len__(self):
+        return len(self.samples)
 
-class FeaturePyramidNetwork(nn.Module):
-    """Feature Pyramid Network (FPN) for multi-scale fusion."""
-    def __init__(self, in_channels_list, out_channels):
-        super(FeaturePyramidNetwork, self).__init__()
-        self.lateral_convs = nn.ModuleList([nn.Conv2d(in_ch, out_channels, 1) for in_ch in in_channels_list])
-        self.fpn_convs = nn.ModuleList([nn.Conv2d(out_channels, out_channels, 3, padding=1) for _ in in_channels_list])
+    def __getitem__(self, idx):
+        """
+        Get a single sample from the dataset.
 
-    def forward(self, inputs):
-        # Lateral connections
-        laterals = [lateral_conv(x) for x, lateral_conv in zip(inputs, self.lateral_convs)]
-        # Top-down pathway
-        for i in range(len(laterals) - 1, 0, -1):
-            laterals[i - 1] += F.interpolate(laterals[i], size=laterals[i - 1].shape[2:], mode='nearest')
-        # FPN output
-        outputs = [fpn_conv(lateral) for lateral, fpn_conv in zip(laterals, self.fpn_convs)]
-        return outputs
+        Args:
+            idx (int): Index of the sample.
 
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: Transformed RGB image, depth image, and labels.
+        """
+        sample = self.samples[idx]
+        rgb_image = Image.open(sample['rgb_path']).convert('RGB')
+        depth_image = Image.open(sample['depth_color_path']).convert('RGB')
+        labels = sample['labels']
+        if self.transform:
+            rgb_image = self.transform(rgb_image)
+            depth_image = self.transform(depth_image)
+        return rgb_image, depth_image, labels
 
-class RGBDFusionNetwork(nn.Module):
-    """RGB-D Fusion Network for Food Nutrition Estimation."""
-    def __init__(self, backbone=resnet101, num_tasks=5, feature_channels=256):
-        super(RGBDFusionNetwork, self).__init__()
-        # Load backbone
-        self.backbone_rgb = backbone(weights=ResNet101_Weights.DEFAULT)
-        self.backbone_depth = backbone(weights=ResNet101_Weights.DEFAULT)
+def get_transforms(training: bool = True) -> transforms.Compose:
+    """
+    Get data transformations.
 
-        # Feature extraction layers
-        self.rgb_layers = nn.ModuleList([
-            self.backbone_rgb.conv1,
-            self.backbone_rgb.bn1,
-            self.backbone_rgb.relu,
-            self.backbone_rgb.maxpool,
-            self.backbone_rgb.layer1,
-            self.backbone_rgb.layer2,
-            self.backbone_rgb.layer3,
-            self.backbone_rgb.layer4
+    Args:
+        training (bool): If True, apply data augmentation.
+
+    Returns:
+        transforms.Compose: Data transformations.
+    """
+    if training:
+        return transforms.Compose([
+            transforms.RandomResizedCrop(224),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomRotation(15),
+            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                 std=[0.229, 0.224, 0.225])
+        ])
+    else:
+        return transforms.Compose([
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                 std=[0.229, 0.224, 0.225])
         ])
 
-        self.depth_layers = nn.ModuleList([
-            self.backbone_depth.conv1,
-            self.backbone_depth.bn1,
-            self.backbone_depth.relu,
-            self.backbone_depth.maxpool,
-            self.backbone_depth.layer1,
-            self.backbone_depth.layer2,
-            self.backbone_depth.layer3,
-            self.backbone_depth.layer4
-        ])
+def split_dataset(dataset: Nutrition5kDataset, 
+                  train_ratio: float = 0.7, 
+                  val_ratio: float = 0.15) -> Tuple[Dataset, Dataset, Dataset]:
+    """
+    Split the dataset into training, validation, and testing sets.
 
-        # FPN for Multi-Scale Fusion
-        self.fpn = FeaturePyramidNetwork([256, 512, 1024, 2048], feature_channels)
+    Args:
+        dataset (Nutrition5kDataset): The dataset to split.
+        train_ratio (float): Proportion of the dataset to use for training.
+        val_ratio (float): Proportion of the dataset to use for validation.
 
-        # CBAM for Multimodal Fusion
-        self.cbam = CBAM(feature_channels)
+    Returns:
+        Tuple[Dataset, Dataset, Dataset]: Training, validation, and testing datasets.
+    """
+    total_size = len(dataset)
+    train_size = int(total_size * train_ratio)
+    val_size = int(total_size * val_ratio)
+    test_size = total_size - train_size - val_size
+    return random_split(dataset, [train_size, val_size, test_size])
 
-        # Fully Connected Layers for Prediction
-        self.fc = nn.Linear(feature_channels * 4, num_tasks)
+def get_nutrition5k_datasets(root_dir: str, label_file: str) -> Tuple[Dataset, Dataset, Dataset]:
+    """
+    Prepare and split the Nutrition5k dataset.
 
-    def extract_features(self, x, layers):
-        features = []
-        for i, layer in enumerate(layers):
-            x = layer(x)
-            if i >= 4:  # Collect features from layer1 to layer4
-                features.append(x)
-        return features
+    Args:
+        root_dir (str): Path to the dataset directory.
+        label_file (str): Path to the label file.
 
-    def forward(self, rgb, depth):
-        # Extract features
-        rgb_features = self.extract_features(rgb, self.rgb_layers)
-        depth_features = self.extract_features(depth, self.depth_layers)
+    Returns:
+        Tuple[Dataset, Dataset, Dataset]: Training, validation, and testing datasets.
+    """
+    dataset = Nutrition5kDataset(root_dir=root_dir, label_file=label_file)
+    train_transform = get_transforms(training=True)
+    test_transform = get_transforms(training=False)
+    
+    # Split dataset
+    train_dataset, val_dataset, test_dataset = split_dataset(dataset)
+    
+    # Assign different transforms to datasets
+    train_dataset.dataset.transform = train_transform
+    val_dataset.dataset.transform = test_transform
+    test_dataset.dataset.transform = test_transform
+    
+    return train_dataset, val_dataset, test_dataset
 
-        # Multi-scale fusion with FPN
-        rgb_fused = self.fpn(rgb_features)
-        depth_fused = self.fpn(depth_features)
+def get_dataloader(dataset: Dataset, batch_size: int, shuffle: bool = True, num_workers: int = 4) -> DataLoader:
+    """
+    Get a DataLoader for the given dataset.
 
-        # Element-wise addition
-        fused_features = [r + d for r, d in zip(rgb_fused, depth_fused)]
+    Args:
+        dataset (Dataset): The dataset to load.
+        batch_size (int): Number of samples per batch.
+        shuffle (bool): Whether to shuffle the dataset.
+        num_workers (int): Number of worker threads for data loading.
 
-        # Attention-based enhancement
-        attention_features = [self.cbam(f) for f in fused_features]
-
-        # Global Average Pooling
-        pooled_features = torch.cat([F.adaptive_avg_pool2d(f, 1).flatten(1) for f in attention_features], dim=1)
-
-        # Final Prediction
-        output = self.fc(pooled_features)
-        return output
-
+    Returns:
+        DataLoader: DataLoader for the dataset.
+    """
+    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
 
 # Example Usage
 if __name__ == "__main__":
-    # Model Initialization
-    model = RGBDFusionNetwork()
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = model.to(device)
+    root_dir = "data/nutrition5k_dataset"
+    label_file = "imagery/label.txt"
 
-    # Dummy Data
-    rgb_input = torch.rand((4, 3, 224, 224)).to(device)
-    depth_input = torch.rand((4, 3, 224, 224)).to(device)
+    # Prepare datasets
+    train_dataset, val_dataset, test_dataset = get_nutrition5k_datasets(root_dir, label_file)
 
-    # Forward Pass
-    predictions = model(rgb_input, depth_input)
-    print(predictions)
+    # Create DataLoaders
+    train_loader = get_dataloader(train_dataset, batch_size=32, shuffle=True)
+    val_loader = get_dataloader(val_dataset, batch_size=32, shuffle=False)
+    test_loader = get_dataloader(test_dataset, batch_size=32, shuffle=False)
+
+    # Iterate over a DataLoader
+    for rgb_images, depth_images, labels in train_loader:
+        print(f"RGB batch shape: {rgb_images.size()}")
+        print(f"Depth batch shape: {depth_images.size()}")
+        print(f"Labels batch shape: {labels.size()}")
+        break

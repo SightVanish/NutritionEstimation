@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from torchvision.models import resnet101, ResNet101_Weights
 import torch.nn.functional as F
+from utils import get_device
 
 class RGBDResNet(nn.Module):
     def __init__(self, num_outputs=5):
@@ -163,7 +164,7 @@ class RGBDFusionNetwork(nn.Module):
 if __name__ == "__main__":
     # Model Initialization
     model = RGBDFusionNetwork()
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = get_device()
     model = model.to(device)
 
     # Dummy Data

@@ -4,9 +4,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.hub import load_state_dict_from_url
 import numpy as np
-from PIL import Image
+# from PIL import Image
 from torchvision import transforms
-from necks import BFP
+# from necks import BFP
 import math
 
 # Model URLs for loading pretrained models

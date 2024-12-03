@@ -1,139 +1,177 @@
 import os
 import torch
-import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
-from PIL import Image
+from torch.utils.data import Dataset, DataLoader, random_split
 from torchvision import transforms
-from typing import Optional
+from PIL import Image
+from typing import Optional, Tuple
 
 class Nutrition5kDataset(Dataset):
     def __init__(self, root_dir: str, label_file: str, transform: Optional[transforms.Compose] = None):
+        """
+        Initialize the Nutrition5kDataset.
+
+        Args:
+            root_dir (str): Path to the root directory of the dataset.
+            label_file (str): Path to the label file (relative to root_dir).
+            transform (Optional[transforms.Compose]): Transformations to apply to the images.
+        """
         self.root_dir = root_dir
         self.transform = transform
         self.samples = []
         label_path = os.path.join(self.root_dir, label_file)
+        
+        # Parse the label file
         with open(label_path, 'r') as f:
             lines = f.readlines()
             for line in lines:
-                parts = line.strip().split()
-                rgb_rel_path = parts[0]  # Path to rgb.png
-                labels = list(map(float, parts[2:]))
-                depth_dir = os.path.dirname(rgb_rel_path)
-                depth_color_rel_path = os.path.join(depth_dir, 'depth_color.png')
+                parts = line.strip().split(',')
+                
+                # Extract paths and label values
+                dish_id = parts[0]
+                rgb_rel_path = f"imagery/realsense_overhead/{dish_id}/rgb.png"
+                depth_color_rel_path = f"imagery/realsense_overhead/{dish_id}/depth_color.png"
+                
+                # Nutritional values (adjust indices based on the actual structure)
+                calories, fat, protein, carbs = map(float, parts[1:5])
+                labels = torch.tensor([calories, fat, protein, carbs], dtype=torch.float32)
+                
+                # Construct absolute paths
                 rgb_path = os.path.join(self.root_dir, rgb_rel_path)
                 depth_color_path = os.path.join(self.root_dir, depth_color_rel_path)
+                
+                # Store the sample
                 self.samples.append({
                     'rgb_path': rgb_path,
                     'depth_color_path': depth_color_path,
-                    'labels': torch.tensor(labels, dtype=torch.float32)
+                    'labels': labels
                 })
-        # Define transforms if not provided
-        if self.transform is None:
-            self.transform = transforms.Compose([
-                transforms.Resize((224, 224)),
-                transforms.ToTensor(),
-                transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                     std=[0.229, 0.224, 0.225])
-            ])
 
     def __len__(self):
         return len(self.samples)
 
     def __getitem__(self, idx):
+        """
+        Get a single sample from the dataset.
+
+        Args:
+            idx (int): Index of the sample.
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: Transformed RGB image, depth image, and labels.
+        """
         sample = self.samples[idx]
-        # Load images
         rgb_image = Image.open(sample['rgb_path']).convert('RGB')
         depth_image = Image.open(sample['depth_color_path']).convert('RGB')
-        # Apply transforms
+        labels = sample['labels']
         if self.transform:
             rgb_image = self.transform(rgb_image)
             depth_image = self.transform(depth_image)
-        labels = sample['labels']
         return rgb_image, depth_image, labels
 
+def get_transforms(training: bool = True) -> transforms.Compose:
+    """
+    Get data transformations.
 
-# Function to get the dataset
-def get_nutrition5k_dataset(root_dir: str, label_file: str) -> Nutrition5kDataset:
-    """Returns an instance of the Nutrition5kDataset."""
-    return Nutrition5kDataset(root_dir=root_dir, label_file=label_file)
+    Args:
+        training (bool): If True, apply data augmentation.
 
-# Function to get the DataLoader
-def get_dataloader(dataset: torch.utils.data.Dataset, batch_size: int, shuffle: bool = True, num_workers: int = 4) -> DataLoader:
-    """Returns a DataLoader for the given dataset."""
+    Returns:
+        transforms.Compose: Data transformations.
+    """
+    if training:
+        return transforms.Compose([
+            transforms.RandomResizedCrop(224),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomRotation(15),
+            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                 std=[0.229, 0.224, 0.225])
+        ])
+    else:
+        return transforms.Compose([
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                 std=[0.229, 0.224, 0.225])
+        ])
+
+def split_dataset(dataset: Nutrition5kDataset, 
+                  train_ratio: float = 0.7, 
+                  val_ratio: float = 0.15) -> Tuple[Dataset, Dataset, Dataset]:
+    """
+    Split the dataset into training, validation, and testing sets.
+
+    Args:
+        dataset (Nutrition5kDataset): The dataset to split.
+        train_ratio (float): Proportion of the dataset to use for training.
+        val_ratio (float): Proportion of the dataset to use for validation.
+
+    Returns:
+        Tuple[Dataset, Dataset, Dataset]: Training, validation, and testing datasets.
+    """
+    total_size = len(dataset)
+    train_size = int(total_size * train_ratio)
+    val_size = int(total_size * val_ratio)
+    test_size = total_size - train_size - val_size
+    return random_split(dataset, [train_size, val_size, test_size])
+
+def get_nutrition5k_datasets(root_dir: str, label_file: str, train_ratio: float = 0.7, val_ratio: float = 0.15) -> Tuple[Dataset, Dataset, Dataset]:
+    """
+    Prepare and split the Nutrition5k dataset.
+
+    Args:
+        root_dir (str): Path to the dataset directory.
+        label_file (str): Path to the label file.
+
+    Returns:
+        Tuple[Dataset, Dataset, Dataset]: Training, validation, and testing datasets.
+    """
+    dataset = Nutrition5kDataset(root_dir=root_dir, label_file=label_file)
+    train_transform = get_transforms(training=True)
+    test_transform = get_transforms(training=False)
+    
+    # Split dataset
+    train_dataset, val_dataset, test_dataset = split_dataset(dataset, train_ratio, val_ratio)
+    
+    # Assign different transforms to datasets
+    train_dataset.dataset.transform = train_transform
+    val_dataset.dataset.transform = test_transform
+    test_dataset.dataset.transform = test_transform
+    
+    return train_dataset, val_dataset, test_dataset
+
+def get_dataloader(dataset: Dataset, batch_size: int, shuffle: bool = True, num_workers: int = 4) -> DataLoader:
+    """
+    Get a DataLoader for the given dataset.
+
+    Args:
+        dataset (Dataset): The dataset to load.
+        batch_size (int): Number of samples per batch.
+        shuffle (bool): Whether to shuffle the dataset.
+        num_workers (int): Number of worker threads for data loading.
+
+    Returns:
+        DataLoader: DataLoader for the dataset.
+    """
     return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
 
-# Define a naive model for testing
-class NaiveModel(nn.Module):
-    def __init__(self):
-        super(NaiveModel, self).__init__()
-        self.features = nn.Sequential(
-            nn.Conv2d(6, 16, kernel_size=3, stride=2, padding=1),  # Input channels changed to 6
-            nn.ReLU(),
-            nn.MaxPool2d(2),
-            nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
-        )
-        self.classifier = nn.Sequential(
-            nn.Linear(32 * 14 * 14, 128),  # Adjust input features based on the output size after conv layers
-            nn.ReLU(),
-            nn.Linear(128, 5)  # Output 5 values corresponding to the labels
-        )
-    def forward(self, x):
-        x = self.features(x)
-        x = x.view(x.size(0), -1)  # Flatten the tensor
-        x = self.classifier(x)
-        return x
+# Example Usage
+if __name__ == "__main__":
+    root_dir = "data/nutrition5k_dataset"
+    label_file = "imagery/label.txt"
 
-# Main testing code
-if __name__ == '__main__':
-    # Set the root directory and label file paths
-    root_dir = 'data/nutrition5k_dataset/imagery'  # Replace with your actual path
-    label_file = 'label_train.txt'
+    # Prepare datasets
+    train_dataset, val_dataset, test_dataset = get_nutrition5k_datasets(root_dir, label_file)
 
-    # Get the dataset and dataloader
-    dataset = get_nutrition5k_dataset(root_dir, label_file)
-    dataloader = get_dataloader(dataset, batch_size=4, shuffle=True)  # Using batch_size=4 for testing
+    # Create DataLoaders
+    train_loader = get_dataloader(train_dataset, batch_size=32, shuffle=True)
+    val_loader = get_dataloader(val_dataset, batch_size=32, shuffle=False)
+    test_loader = get_dataloader(test_dataset, batch_size=32, shuffle=False)
 
-    # Initialize the model, loss function, and optimizer
-    model = NaiveModel()
-    criterion = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-
-    # Move model to GPU if available
-
-    if torch.backends.mps.is_available():
-        print("Training with MPS backend.")
-    else:
-        print("MPS backend is not available.")
-    device = torch.device('mps' if torch.backends.mps.is_available() else 'cpu')
-    model.to(device)
-
-    # Testing loop (one epoch)
-    model.train()
-    for batch_idx, (rgb_image, depth_image, labels) in enumerate(dataloader):
-        inputs = torch.cat((rgb_image, depth_image), dim=1)
-        
-        inputs = inputs.to(device)
-        labels = labels.to(device)
-
-        # Zero the gradients
-        optimizer.zero_grad()
-
-        # Forward pass
-        outputs = model(inputs)
-
-        # Compute loss
-        loss = criterion(outputs, labels)
-
-        # Backward pass and optimize
-        loss.backward()
-        optimizer.step()
-
-        print(f'Batch {batch_idx+1}, Loss: {loss.item():.4f}')
-
-        # For testing, we'll just run one batch
-        if batch_idx == 0:
-            break
-
-    print('Data loading and model testing completed successfully.')
+    # Iterate over a DataLoader
+    for rgb_images, depth_images, labels in train_loader:
+        print(f"RGB batch shape: {rgb_images.size()}")
+        print(f"Depth batch shape: {depth_images.size()}")
+        print(f"Labels batch shape: {labels.size()}")
+        break

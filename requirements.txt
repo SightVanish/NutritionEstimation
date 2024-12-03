@@ -1,0 +1,6 @@
+torch==2.0.1+cu118 -f https://download.pytorch.org/whl/torch_stable.html
+torchvision==0.15.2+cu118 -f https://download.pytorch.org/whl/torch_stable.html
+tqdm
+tensorboard
+numpy
+Pillow

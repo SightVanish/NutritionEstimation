@@ -3,6 +3,8 @@ from PIL import Image
 from torchvision import transforms
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
+import torch.nn as nn
+import torch
 
 class Nutrition_RGBD(Dataset):
     def __init__(self, image_path, rgb_txt_dir, rgbd_txt_dir, transform=None):
@@ -50,7 +52,6 @@ class Nutrition_RGBD(Dataset):
 
     def __len__(self):
         return len(self.images)
-
 
 def get_transforms(dataset, model=None):
     """Define data transformations with augmentations for the nutrition_rgb and nutrition_rgbd datasets."""
@@ -122,8 +123,41 @@ def get_dataset(args, train_transform, test_transform):
         raise ValueError("Unsupported dataset type")
     return trainset, testset
 
+def get_device():
+    """Get the device (GPU or CPU) based on availability."""
+    if torch.backends.mps.is_available():
+        device = torch.device('mps')
+        print("Using MPS device for training.")
+    elif torch.cuda.is_available():
+        device = torch.device('cuda')
+        print("Using CUDA for trining.")
+    else: 
+        device = torch.device('cpu')
+        print("CUDA and MPS devices not found. Using CPU.")
+    return device
 
-
+class NaiveModel(nn.Module):
+    def __init__(self):
+        super(NaiveModel, self).__init__()
+        self.features = nn.Sequential(
+            nn.Conv2d(6, 16, kernel_size=3, stride=2, padding=1),  # Input channels changed to 6
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+            nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+        )
+        self.classifier = nn.Sequential(
+            nn.Linear(32 * 14 * 14, 128),  # Adjust input features based on the output size after conv layers
+            nn.ReLU(),
+            nn.Linear(128, 5)  # Output 5 values corresponding to the labels
+        )
+    def forward(self, x):
+        x = self.features(x)
+        x = x.view(x.size(0), -1)  # Flatten the tensor
+        x = self.classifier(x)
+        return x
+    
 # def get_DataLoader(args):
 #     """Main function to get data loaders for training and testing."""
 #     train_transform, test_transform = get_transforms(args.dataset, model=args.model)
