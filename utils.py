@@ -127,10 +127,10 @@ def get_device():
     """Get the device (GPU or CPU) based on availability."""
     if torch.backends.mps.is_available():
         device = torch.device('mps')
-        print("Using MPS device for training.")
+        print("Using MPS on MacOS.")
     elif torch.cuda.is_available():
         device = torch.device('cuda')
-        print("Using CUDA for trining.")
+        print("Using CUDA on Nvidia.")
     else: 
         device = torch.device('cpu')
         print("CUDA and MPS devices not found. Using CPU.")
