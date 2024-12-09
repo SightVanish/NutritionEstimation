@@ -193,6 +193,28 @@ def split_dataset():
     print(f"Training samples: {len(train_dishes)}, Testing samples: {len(test_dishes)}")
     print(f"Labels written to {train_labels_file} and {test_labels_file}.")
 
+def check_data_integrity():
+    # Define file paths
+    label_file = "data/nutrition5k_dataset/imagery/label.txt"
+    data_directory = "data/nutrition5k_dataset/imagery/realsense_overhead"
+    output_file = "data/nutrition5k_dataset/imagery/filtered_label.txt"
+
+    # Open the label file and create a filtered output
+    with open(label_file, 'r') as infile, open(output_file, 'w') as outfile:
+        for line in infile:
+            # Split the line by commas
+            parts = line.strip().split(',')
+            
+            # Extract the dish ID (assuming it's the first part of each line)
+            dish_id = parts[0]
+            
+            # Check if a directory with the same name as the dish ID exists in the data directory
+            if os.path.isdir(os.path.join(data_directory, dish_id)):
+                # Write the valid line to the output file
+                outfile.write(line)
+
+    print(f"Filtered data has been written to {output_file}")
+
 class NaiveModel(nn.Module):
     def __init__(self):
         super(NaiveModel, self).__init__()
@@ -225,4 +247,5 @@ class NaiveModel(nn.Module):
 
 #     return train_loader, test_loader
 if __name__ == "__main__":
-    split_dataset()
+    # split_dataset()
+    check_data_integrity()
