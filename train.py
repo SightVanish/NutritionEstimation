@@ -1,17 +1,17 @@
 import torch
-from torch.utils.tensorboard import SummaryWriter # type: ignore
+from torch.utils.tensorboard import SummaryWriter
 import os
 from tqdm import tqdm
 from model import RGBDFusionNetwork, BaseResNetModel  # Replace with your model file
 from loss import NutritionLoss  # Replace with your loss function file
-from data_loader import get_nutrition5k_datasets, get_dataloader  # Replace with your dataset loading functions
+from data_loader import get_train_val_loaders  # Use the updated function from data_loader
 from utils import get_device
 
 
 def main():
     # Set paths
-    root_dir = 'data/nutrition5k_dataset'
-    label_file = 'imagery/label.txt'
+    root_dir = 'data/nutrition5k_dataset/imagery/train'
+    label_file = 'train.txt'
     checkpoint_dir = "checkpoints"
     log_dir = "logs"
     os.makedirs(checkpoint_dir, exist_ok=True)
@@ -24,12 +24,10 @@ def main():
     num_epochs = 100
     batch_size = 16
     learning_rate = 1e-3
-    patience = 10  # Early stopping patience
+    val_ratio = 0.2  # Validation split ratio
 
-    # Load datasets
-    train_dataset, val_dataset, test_dataset = get_nutrition5k_datasets(root_dir, label_file, 0.5, 0.5)
-    train_loader = get_dataloader(train_dataset, batch_size=batch_size, shuffle=True)
-    val_loader = get_dataloader(val_dataset, batch_size=batch_size, shuffle=False)
+    # Load datasets and DataLoaders
+    train_loader, val_loader = get_train_val_loaders(root_dir, label_file, batch_size, val_ratio)
 
     # Initialize model, loss function, and optimizer
     # model = RGBDFusionNetwork()
@@ -42,9 +40,8 @@ def main():
     # TensorBoard setup
     writer = SummaryWriter(log_dir=log_dir)
 
-    # Early stopping and best model tracking
+    # Best model tracking
     best_val_loss = float('inf')
-    early_stop_counter = 0
 
     print("Starting training...")
     for epoch in range(num_epochs):
@@ -72,7 +69,7 @@ def main():
             running_loss += loss.item() * rgb_inputs.size(0)
 
         # Calculate average training loss
-        train_loss = running_loss / len(train_loader.dataset) # type: ignore
+        train_loss = running_loss / len(train_loader.dataset)
         writer.add_scalar('Loss/Train', train_loss, epoch + 1)
 
         # Evaluation phase
@@ -84,19 +81,11 @@ def main():
             print(f"Validation loss improved from {best_val_loss:.4f} to {val_loss:.4f}. Saving best model...")
             best_val_loss = val_loss
             torch.save(model.state_dict(), os.path.join(checkpoint_dir, "best_model.pth"))
-            early_stop_counter = 0
-        else:
-            early_stop_counter += 1
 
         # Save the last model weights after each epoch
         torch.save(model.state_dict(), os.path.join(checkpoint_dir, "last_model.pth"))
 
         print(f"Epoch {epoch + 1}/{num_epochs}: Train Loss = {train_loss:.4f}, Validation Loss = {val_loss:.4f}")
-
-        # Early stopping
-        if early_stop_counter >= patience:
-            print(f"Early stopping triggered after {patience} epochs without improvement.")
-            break
 
     writer.close()
     print("Training completed. Best model saved as 'best_model.pth' and last model as 'last_model.pth'.")
