@@ -1,4 +1,6 @@
 import os
+import shutil
+import random
 from PIL import Image
 from torchvision import transforms
 from torch.utils.data import DataLoader
@@ -136,6 +138,61 @@ def get_device():
         print("CUDA and MPS devices not found. Using CPU.")
     return device
 
+def split_dataset():
+    # Define paths
+    data_dir = "data/nutrition5k_dataset/imagery/realsense_overhead"
+    label_file = "data/nutrition5k_dataset/imagery/label.txt"
+    output_dir = "data/nutrition5k_dataset/imagery"
+    train_dir = os.path.join(output_dir, "train")
+    test_dir = os.path.join(output_dir, "test")
+    train_labels_file = os.path.join(output_dir, "train.txt")
+    test_labels_file = os.path.join(output_dir, "test.txt")
+
+    # Create directories for split datasets
+    os.makedirs(train_dir, exist_ok=True)
+    os.makedirs(test_dir, exist_ok=True)
+
+    # Get all dish directories
+    dish_dirs = [d for d in os.listdir(data_dir) if os.path.isdir(os.path.join(data_dir, d))]
+
+    # Shuffle the dish directories
+    random.shuffle(dish_dirs)
+
+    # Split the data (40% for testing)
+    test_size = int(0.4 * len(dish_dirs))
+    test_dishes = dish_dirs[:test_size]
+    train_dishes = dish_dirs[test_size:]
+
+    # Read the labels from the label file
+    with open(label_file, "r") as f:
+        labels = f.readlines()
+
+    # Create dictionaries for labels
+    label_dict = {}
+    for line in labels:
+        parts = line.strip().split(",")
+        dish_id = parts[0]
+        label_dict[dish_id] = line.strip()
+
+    # Function to copy directories and create label files
+    def copy_dishes_and_write_labels(dishes, dest_dir, label_file):
+        with open(label_file, "w") as f:
+            for dish in dishes:
+                src_path = os.path.join(data_dir, dish)
+                dest_path = os.path.join(dest_dir, dish)
+                shutil.copytree(src_path, dest_path)
+                # Write the corresponding label
+                if dish in label_dict:
+                    f.write(label_dict[dish] + "\n")
+
+    # Copy training and testing data and write labels
+    copy_dishes_and_write_labels(train_dishes, train_dir, train_labels_file)
+    copy_dishes_and_write_labels(test_dishes, test_dir, test_labels_file)
+
+    print("Dataset split completed.")
+    print(f"Training samples: {len(train_dishes)}, Testing samples: {len(test_dishes)}")
+    print(f"Labels written to {train_labels_file} and {test_labels_file}.")
+
 class NaiveModel(nn.Module):
     def __init__(self):
         super(NaiveModel, self).__init__()
@@ -167,3 +224,5 @@ class NaiveModel(nn.Module):
 #     test_loader = DataLoader(testset, batch_size=args.b, shuffle=False, num_workers=4, pin_memory=True)
 
 #     return train_loader, test_loader
+if __name__ == "__main__":
+    split_dataset()
