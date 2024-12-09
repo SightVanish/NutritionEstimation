@@ -1,8 +1,8 @@
 import torch
-from torch.utils.tensorboard import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter # type: ignore
 import os
 from tqdm import tqdm
-from model import RGBDFusionNetwork  # Replace with your model file
+from model import RGBDFusionNetwork, BaseResNetModel  # Replace with your model file
 from loss import NutritionLoss  # Replace with your loss function file
 from data_loader import get_nutrition5k_datasets, get_dataloader  # Replace with your dataset loading functions
 from utils import get_device
@@ -32,7 +32,8 @@ def main():
     val_loader = get_dataloader(val_dataset, batch_size=batch_size, shuffle=False)
 
     # Initialize model, loss function, and optimizer
-    model = RGBDFusionNetwork()
+    # model = RGBDFusionNetwork()
+    model = BaseResNetModel()
     model.to(device)
 
     loss_fn = NutritionLoss(num_tasks=4)  # Adjust num_tasks if needed
@@ -71,7 +72,7 @@ def main():
             running_loss += loss.item() * rgb_inputs.size(0)
 
         # Calculate average training loss
-        train_loss = running_loss / len(train_loader.dataset)
+        train_loss = running_loss / len(train_loader.dataset) # type: ignore
         writer.add_scalar('Loss/Train', train_loss, epoch + 1)
 
         # Evaluation phase
