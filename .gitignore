@@ -3,3 +3,4 @@
 checkpoints/
 logs/
 data/
+*.pth
